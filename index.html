@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ExpertTrade - Powered by Deriv</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial; text-align: center; background: #0d1117; color: white; padding: 20px; margin: 0; }
+        .btn { background: #161b22; color: white; border: 1px solid #30363d; padding: 12px 20px; border-radius: 8px; cursor: pointer; margin: 5px; font-size: 16px; }
+        .btn:hover { background: #30363d; }
+        .balance { font-size: 28px; color: #00ff88; font-weight: bold; margin: 20px 0; }
+        .trade { padding: 20px 40px; margin: 10px; font-size: 18px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .call { background: #00ff88; color: black; }
+        .put { background: #ff0044; color: white; }
+        select { padding: 10px; margin: 10px; border-radius: 6px; background: #161b22; color: white; border: 1px solid #30363d; font-size: 16px; }
+        h2 { color: #00ff88; }
+        #price { font-size: 20px; margin: 10px; }
+    </style>
+</head>
+<body>
+    <h2>ExpertTrade</h2>
+    <button class="btn" id="loginBtn" onclick="login()">Login Deriv</button>
+    <button class="btn" id="depositBtn" onclick="deposit()" style="display:none;">Deposit</button>
+
+    <div class="balance" id="balance">Balance: Login to see</div>
+    
+    <select id="asset" onchange="changeAsset()">
+        <option value="frxEURUSD">EUR/USD</option>
+        <option value="frxXAUUSD">GOLD</option>
+        <option value="frxGBPUSD">GBP/USD</option>
+    </select>
+    <select id="duration">
+        <option value="5">5 Seconds</option>
+        <option value="10">10 Seconds</option>
+        <option value="30">30 Seconds</option>
+    </select>
+    
+    <div id="price">Loading price...</div>
+    <br>
+    <button class="trade call" onclick="trade('CALL')">CALL $10</button>
+    <button class="trade put" onclick="trade('PUT')">PUT $10</button>
+    <div id="result" style="margin-top:20px; font-size:18px; font-weight:bold;"></div>
+
+<script>
+const APP_ID = 33RxvPFAwGMXDeuGWEBTe; // <-- YOUR DERIV APP ID
+const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+let ws, currentAsset = "frxEURUSD";
+
+window.onload = () => {
+    connectWS();
+    // Check if we came back from Deriv login
+    if(window.location.hash.includes('token=')) {
+        let token = window.location.hash.split('token=')[1].split('&')[0];
+        localStorage.setItem('deriv_token', token);
+        window.location.hash = '';
+        authorize(token);
+    } else if(localStorage.getItem('deriv_token')) {
+        authorize(localStorage.getItem('deriv_token'));
+    }
+}
+
+function connectWS() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
+    };
+    ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        if(data.msg_type === "authorize") { getBalance(); }
+        if(data.msg_type === "balance") { 
+            document.getElementById("balance").innerText = `Balance: $${data.balance.toFixed(2)}`; 
+        }
+        if(data.msg_type === "tick") { document.getElementById("price").innerText = `Price: ${data.tick.quote}`; }
+        if(data.msg_type === "buy") { 
+            let profit = data.buy.profit;
+            document.getElementById("result").innerHTML = profit > 0 ? `WON +$${profit.toFixed(2)}` : `LOST -$10`;
+            setTimeout(() => { document.getElementById("result").innerHTML = ""; }, 3000);
+            getBalance();
+        }
+    }
+}
+
+function authorize(token) {
+    document.getElementById('loginBtn').style.display='none';
+    document.getElementById('depositBtn').style.display='inline';
+    ws.send(JSON.stringify({ authorize: token }));
+}
+
+function getBalance() {
+    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+}
+
+function login() {
+    window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=${APP_ID}&redirect_uri=https://localhost`;
+}
+
+function deposit() { 
+    window.open('https://app.deriv.com/cashier/deposit', '_blank'); 
+}
+
+function changeAsset() {
+    currentAsset = document.getElementById('asset').value;
+    ws.send(JSON.stringify({ forget_all: ["ticks"] }));
+    ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
+}
+
+function trade(type) {
+    if(!localStorage.getItem('deriv_token')) return alert("Login first");
+    let duration = document.getElementById('duration').value;
+    ws.send(JSON.stringify({
+        buy: 1, price: 10,
+        parameters: { 
+            amount: 10, 
+            basis: "stake", 
+            contract_type: type, 
+            currency: "USD", 
+            duration: parseInt(duration), 
+            duration_unit: "s", 
+            symbol: currentAsset 
+        }
+    }));
+}
+</script>
+</body>
+</html>
